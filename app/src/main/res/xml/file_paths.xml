@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ShareHelper downloads a post's photo to cacheDir/shared/ before handing it to the
+         Sharesheet. This must match that subfolder for the FileProvider to grant access. -->
+    <cache-path name="shared_images" path="shared/" />
+</paths>

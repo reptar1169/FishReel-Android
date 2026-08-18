@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "571550695999",
+    "firebase_url": "https://fishme-4e1ba-default-rtdb.firebaseio.com",
+    "project_id": "fishme-4e1ba",
+    "storage_bucket": "fishme-4e1ba.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:571550695999:android:6e3667db7ea39aaf4d2e8a",
+        "android_client_info": {
+          "package_name": "com.reptar.fishreel"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "571550695999-7120l1512rotee92vq80ja986o3espm3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.reptar.fishreel",
+            "certificate_hash": "b55b4ecc52615d3146ad83ea587370f7cf5d5848"
+          }
+        },
+        {
+          "client_id": "571550695999-331n0geu5rd1o5cmu6mjroumdq1d2hsa.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDHI3dv4OU1SpXYm493tjVZiHzDceQjACs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "571550695999-331n0geu5rd1o5cmu6mjroumdq1d2hsa.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "571550695999-eoo9nr2fh2p9c5hofr7j8lqgsf7b0qv7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.reptar.FishReel"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

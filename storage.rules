@@ -1,0 +1,55 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Shared by both the iOS and Android Fishreel apps. Keep this file in
+    // sync with whatever the iOS app's Storage rules are; do not diverge.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isImageUpload() {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+    function isVideoUpload() {
+      return request.resource.contentType.matches('video/.*')
+        && request.resource.size < 100 * 1024 * 1024;
+    }
+    // AuthViewModel.updateProfilePhoto() uploads to profileImages/{uid}/photo.jpg.
+    // Any signed-in user can read it (avatars render in other people's feeds),
+    // but only the owner can overwrite their own photo.
+    match /profileImages/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId && isImageUpload();
+    }
+    // CreatePostView / Android PostRepository.uploadPost() upload to
+    // postImages/{uid}/{fileName}.jpg. Owner can also delete it when their
+    // post is deleted (request.resource is null on delete, so this needs its
+    // own rule rather than folding into isImageUpload()'s "write" check).
+    match /postImages/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId && isImageUpload();
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+    // CreatePostView uploads to postVideos/{uid}/{postOrTempId}.mp4. Owner can
+    // also delete it when their post is deleted.
+    match /postVideos/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId && isVideoUpload();
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+    // A static poster frame generated at video-upload time (see
+    // VideoThumbnailExtractor / iOS's VideoUploader) so the feed can show a video post
+    // instantly instead of waiting on the video itself. Uploaded as a regular image,
+    // keyed the same way as postVideos so they stay associated. Owner can also delete
+    // it when their post is deleted.
+    match /postVideoThumbnails/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId && isImageUpload();
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

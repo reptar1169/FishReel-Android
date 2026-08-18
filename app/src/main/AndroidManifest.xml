@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required at runtime on API 33+ before a notification can actually be
+         shown - requested from MainActivity once signed in. Below API 33
+         this is a normal (auto-granted) permission, no prompt either way. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- FishReel doesn't use the advertising ID for anything (no ads, no ad
+         attribution) - but firebase-messaging transitively pulls in a
+         play-services-measurement dependency that declares this permission
+         in its own manifest, which trips Play Console's "must declare
+         AD_ID" check on submission even though nothing actually reads it.
+         Explicitly stripping it here (rather than declaring it) is Google's
+         own recommended fix for apps that genuinely don't use it. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+
+    <application
+        android:name=".FishReelApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Fishreel">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Fishreel"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- App Links for shared post URLs (fishreelapp.com/post/{id}) - see
+                 PostRow.shareItems on iOS / ShareHelper.kt here for what actually gets shared,
+                 and website/.well-known/assetlinks.json, which is what proves to Android this
+                 app owns that domain and earns the autoVerify silent (no chooser) open.
+                 MainActivity.onCreate/onNewIntent read the postId out of the resulting
+                 ACTION_VIEW intent's data URI. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="https"
+                    android:host="fishreelapp.com"
+                    android:pathPrefix="/post" />
+            </intent-filter>
+        </activity>
+
+        <!-- Handles FCM token refresh + foreground message display for
+             comment/reply notifications. See FishReelMessagingService. -->
+        <service
+            android:name=".notifications.FishReelMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Channel Android uses when it auto-displays a notification itself
+             (app backgrounded/killed) - must match
+             FishReelApplication.COMMENTS_NOTIFICATION_CHANNEL_ID. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="comments" />
+
+        <!-- Grants the system Sharesheet temporary read access to a downloaded post photo
+             cached under cacheDir/shared/. A content:// URI can't be shared directly without
+             a provider like this; a plain file:// URI would be rejected by other apps. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>

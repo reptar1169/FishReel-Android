@@ -1,0 +1,29 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/app/release
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.kotlin
+
+# Signing - never commit the release keystore or its credentials, no matter
+# where it ends up relative to the project root.
+*.jks
+*.keystore
+keystore.properties
+
+# Secrets - matches the iOS/functions convention of keeping .env out of git;
+# nothing currently lives here, but this is cheap insurance if that changes.
+.env
+.env.*
+!.env.example

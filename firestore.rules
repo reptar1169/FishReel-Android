@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Shared by both the iOS and Android Fishreel apps -- they read/write the
+    // exact same document shape (fields: username, userID, userAvatar, postImage,
+    // postVideo, postVideoThumbnail, postURL, linkTitle, linkDescription,
+    // linkImageURL, linkDomain, caption, likes, commentCount, createdAt for
+    // posts; text, userID, username, likes, replyCount, parentCommentID,
+    // createdAt for comments; postID, userID, username, userAvatar, createdAt
+    // for postLikes; postID, commentID, userID, createdAt for commentLikes;
+    // username, avatar, createdAt for users). A post is exactly one of
+    // photo/video/link -- only one of postImage/postVideo/postURL is ever
+    // non-blank. Keep this file in sync with whatever the iOS app's rules
+    // are; do not diverge the two.
+    //
+    // likes, replyCount, and parentCommentID on a comment support
+    // comment-level likes and one level of threaded replies -- replies are
+    // just comments with parentCommentID set to their parent's id, grouped
+    // into threads client-side by both apps.
+    //
+    // users/{uid} (see below) mirrors a subset of Firebase Auth account
+    // metadata that's otherwise only readable for whoever's currently
+    // signed in -- both apps' AuthViewModels keep their own profile doc in
+    // sync on every sign-in / auth state change.
+    //
+    // fcmToken on a users/{uid} doc (iOS-only as of now) is that device's
+    // current push-notification token, saved once notification permission
+    // is granted. The onCommentCreated Cloud Function (functions/) reads it
+    // (via the Admin SDK, which bypasses these rules entirely) to notify a
+    // post's owner about a new top-level comment, or a comment's owner
+    // about a new reply -- not written by the Android app yet.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userID) {
+      return isSignedIn() && request.auth.uid == userID;
+    }
+    // Anyone signed in can bump a post's likes count or commentCount -- but
+    // nothing else on a post they don't own. Who liked a post lives in the
+    // separate postLikes collection below, not as a field on the post itself.
+    function onlyEngagementFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['likes', 'commentCount']);
+    }
+    // Same idea as onlyEngagementFieldsChanged() above, but for a comment:
+    // anyone signed in can bump its likes count (liking) or replyCount
+    // (posting a reply to it), but nothing else about a comment they don't
+    // own.
+    function onlyCommentEngagementFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['likes', 'replyCount']);
+    }
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userID == request.auth.uid;
+      allow update: if isSignedIn() &&
+        (resource.data.userID == request.auth.uid || onlyEngagementFieldsChanged());
+      // Needed for AuthViewModel.deletePosts() during account deletion.
+      allow delete: if isOwner(resource.data.userID);
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.userID == request.auth.uid;
+        // Liking a comment or replying to it (which bumps the parent's
+        // replyCount) both touch a comment that isn't the requester's own --
+        // onlyCommentEngagementFieldsChanged() scopes that down to just
+        // those two fields, same pattern as posts.
+        allow update: if isSignedIn() && onlyCommentEngagementFieldsChanged();
+        // A comment's own author can always delete it. A post's owner can also
+        // delete any comment left on their own post -- needed so that deleting
+        // a post (or a whole account) can actually clean out its comments
+        // subcollection instead of leaving other people's comments orphaned.
+        allow delete: if isOwner(resource.data.userID) ||
+          isOwner(get(/databases/$(database)/documents/posts/$(postId)).data.userID);
+      }
+    }
+    // Firestore only authorizes a collectionGroup() query against a rule
+    // declared with the {path=**} wildcard - the nested rule above only
+    // covers direct access via posts/{postId}/comments/{commentId}, not
+    // AuthViewModel.deleteComments()'s collectionGroup("comments") query,
+    // which spans every post's comments at once. Without this, that query
+    // fails with "Missing or insufficient permissions" during account
+    // deletion any time it would actually match a comment document.
+    match /{path=**}/comments/{commentId} {
+      allow read: if isSignedIn();
+      allow delete: if isOwner(resource.data.userID);
+    }
+    match /stories/{storyId} {
+      allow read: if isSignedIn();
+      allow write: if false; // seeded/admin-managed content only
+    }
+    // Who has liked a post: one doc per (post, user) pair, keyed
+    // "{postID}_{userID}" by PostRepository.toggleLike(), mirroring how
+    // /follows is keyed. The post's own `likes` field is just a denormalized
+    // count kept in sync alongside these -- see onlyEngagementFieldsChanged().
+    match /postLikes/{likeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userID == request.auth.uid &&
+        likeId == request.resource.data.postID + '_' + request.auth.uid;
+      allow update: if false;
+      // The liker can always remove their own like. A post's owner can also
+      // delete any like on their own post -- needed so deleting a post (or a
+      // whole account) can clean out its postLikes instead of leaving orphans.
+      allow delete: if isOwner(resource.data.userID) ||
+        isOwner(get(/databases/$(database)/documents/posts/$(resource.data.postID)).data.userID);
+    }
+    // Who has liked a comment: one doc per (comment, user) pair, keyed
+    // "{commentID}_{userID}" by PostRepository.toggleCommentLike()
+    // (CommentsViewModel.toggleCommentLike() on iOS), mirroring postLikes
+    // above. Stores postID alongside commentID since a comment's own doc
+    // only lives at posts/{postId}/comments/{commentId} -- needed to look up
+    // the comment (and its owner) via get() below.
+    match /commentLikes/{likeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userID == request.auth.uid &&
+        likeId == request.resource.data.commentID + '_' + request.auth.uid;
+      allow update: if false;
+      // The liker can always remove their own like. A comment's own author,
+      // or the owner of the post the comment lives on, can also delete any
+      // like on that comment -- the post-owner clause is what lets
+      // PostRepository.deletePost() clean out commentLikes left by someone
+      // else on a comment that someone else also wrote, whenever the post
+      // itself (which this account does own) gets deleted. Same cleanup
+      // rationale as postLikes/comments above.
+      allow delete: if isOwner(resource.data.userID) ||
+        isOwner(get(/databases/$(database)/documents/posts/$(resource.data.postID)/comments/$(resource.data.commentID)).data.userID) ||
+        isOwner(get(/databases/$(database)/documents/posts/$(resource.data.postID)).data.userID);
+    }
+    // Hooked feed: a follow relationship, one doc per (follower, followee)
+    // pair, keyed "{followerID}_{followeeID}" by AuthViewModel/PostRepository.
+    match /follows/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.followerID == request.auth.uid;
+      allow update: if false;
+      // Needed both for unfollowing and for AuthViewModel's account-deletion
+      // cleanup, which removes rows where the deleted user is either side.
+      allow delete: if isSignedIn() &&
+        (resource.data.followerID == request.auth.uid || resource.data.followeeID == request.auth.uid);
+    }
+    // A user's own profile summary (username, avatar, real account creation
+    // date). Readable by anyone signed in so a profile screen can show
+    // someone else's join date and post count, and so a follower list can
+    // resolve names/avatars instead of just raw IDs. Only the user
+    // themselves can write it -- both apps' AuthViewModels keep it in sync
+    // on every sign-in / auth state change.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId);
+      // Needed for AuthViewModel's account-deletion cleanup.
+      allow delete: if isOwner(userId);
+    }
+  }
+}
