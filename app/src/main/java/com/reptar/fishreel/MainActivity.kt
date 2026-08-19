@@ -31,7 +31,6 @@ import com.reptar.fishreel.ui.screens.EditPostScreen
 import com.reptar.fishreel.ui.screens.FeedScreen
 import com.reptar.fishreel.ui.screens.LikersScreen
 import com.reptar.fishreel.ui.screens.PostScreen
-import com.reptar.fishreel.ui.screens.ProfileScreen
 import com.reptar.fishreel.ui.screens.UserProfileScreen
 import com.reptar.fishreel.ui.theme.FishreelTheme
 import java.net.URLDecoder
@@ -115,14 +114,11 @@ class MainActivity : ComponentActivity() {
                         composable("feed") {
                             FeedScreen(
                                 viewModel = feedViewModel,
+                                authViewModel = authViewModel,
+                                themeViewModel = themeViewModel,
                                 isDarkTheme = isDarkTheme,
-                                // Reads from the same currentUser StateFlow the Profile screen
-                                // updates, so a photo changed there shows up here immediately
-                                // without needing to reopen the feed.
-                                profilePhotoUrl = currentUser?.photoUrl?.toString(),
                                 onAddPost = { navController.navigate("post") },
                                 onOpenComments = { postId -> navController.navigate("comments/$postId") },
-                                onOpenProfile = { navController.navigate("profile") },
                                 onEditPost = { postId -> navController.navigate("editPost/$postId") },
                                 onOpenLikers = { postId -> navController.navigate("likers/$postId") },
                                 onOpenUserProfile = { userId, username, avatarUrl ->
@@ -198,13 +194,6 @@ class MainActivity : ComponentActivity() {
                                     feedViewModel.filterByUser(followerId, followerUsername, followerAvatar)
                                     navController.popBackStack("feed", inclusive = false)
                                 }
-                            )
-                        }
-                        composable("profile") {
-                            ProfileScreen(
-                                authViewModel = authViewModel,
-                                themeViewModel = themeViewModel,
-                                onBack = { navController.popBackStack() }
                             )
                         }
                     }

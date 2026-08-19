@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Logout
@@ -23,20 +25,15 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,9 +57,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The Account tab's content (see FeedScreen's selectedTab == 3) - profile photo, dark mode
+ * toggle, legal links, sign out, and delete account. No Scaffold/TopAppBar of its own since
+ * it's embedded directly in FeedScreen's; error messages surface through the snackbarHostState
+ * FeedScreen already owns rather than a separate nested SnackbarHost.
+ */
 @Composable
-fun ProfileScreen(authViewModel: AuthViewModel, themeViewModel: ThemeViewModel, onBack: () -> Unit) {
+fun ProfileContent(
+    authViewModel: AuthViewModel,
+    themeViewModel: ThemeViewModel,
+    snackbarHostState: SnackbarHostState,
+    scrollState: ScrollState = rememberScrollState(),
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val user by authViewModel.currentUser.collectAsState()
@@ -70,7 +78,6 @@ fun ProfileScreen(authViewModel: AuthViewModel, themeViewModel: ThemeViewModel, 
     val errorMessage by authViewModel.errorMessage.collectAsState()
     val needsReauthentication by authViewModel.needsReauthentication.collectAsState()
     val isDarkTheme by themeViewModel.isDarkTheme.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var reauthPassword by remember { mutableStateOf("") }
@@ -99,27 +106,14 @@ fun ProfileScreen(authViewModel: AuthViewModel, themeViewModel: ThemeViewModel, 
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Profile") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            val photoUrl = user?.photoUrl?.toString()
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        val photoUrl = user?.photoUrl?.toString()
             if (!photoUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = photoUrl,
@@ -230,7 +224,6 @@ fun ProfileScreen(authViewModel: AuthViewModel, themeViewModel: ThemeViewModel, 
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Delete Account")
             }
-        }
     }
 
     if (showDeleteConfirmDialog) {

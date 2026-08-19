@@ -153,6 +153,21 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
         FirebaseAuth.getInstance().removeAuthStateListener(authStateListener)
     }
 
+    /** A text-only post - no photo, video, or link, just a caption. */
+    fun uploadTextPost(caption: String, onComplete: () -> Unit) {
+        viewModelScope.launch {
+            _uploading.value = true
+            try {
+                PostRepository.uploadTextPost(caption)
+                onComplete()
+            } catch (e: Exception) {
+                _errorMessage.value = "Upload failed: ${e.message ?: "unknown error"}"
+            } finally {
+                _uploading.value = false
+            }
+        }
+    }
+
     fun uploadPhotoPost(uri: Uri, caption: String, onComplete: () -> Unit) {
         viewModelScope.launch {
             _uploading.value = true

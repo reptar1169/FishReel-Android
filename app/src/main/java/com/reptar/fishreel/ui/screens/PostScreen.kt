@@ -51,7 +51,8 @@ import com.reptar.fishreel.ui.components.LinkPreviewCard
 import com.reptar.fishreel.ui.components.VideoPlayer
 import kotlinx.coroutines.delay
 
-private enum class PostType { PHOTO, VIDEO, LINK }
+// TEXT appended last so PHOTO/VIDEO/LINK keep their existing ordinal-based tab indices.
+private enum class PostType { PHOTO, VIDEO, LINK, TEXT }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +107,7 @@ fun PostScreen(viewModel: FeedViewModel, onPostSuccess: () -> Unit, onBack: () -
         PostType.PHOTO -> selectedImageUri != null
         PostType.VIDEO -> selectedVideoUri != null
         PostType.LINK -> linkUrl.isNotBlank()
+        PostType.TEXT -> caption.isNotBlank()
     }
 
     Scaffold(
@@ -149,6 +151,12 @@ fun PostScreen(viewModel: FeedViewModel, onPostSuccess: () -> Unit, onBack: () -
                     selected = postType == PostType.LINK,
                     onClick = { postType = PostType.LINK },
                     text = { Text("Link") },
+                    enabled = !uploading
+                )
+                Tab(
+                    selected = postType == PostType.TEXT,
+                    onClick = { postType = PostType.TEXT },
+                    text = { Text("Text") },
                     enabled = !uploading
                 )
             }
@@ -241,6 +249,14 @@ fun PostScreen(viewModel: FeedViewModel, onPostSuccess: () -> Unit, onBack: () -
                         }
                     }
                 }
+
+                PostType.TEXT -> {
+                    Text(
+                        text = "No photo, video, or link needed -- just write a caption below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -273,6 +289,7 @@ fun PostScreen(viewModel: FeedViewModel, onPostSuccess: () -> Unit, onBack: () -
                                 viewModel.uploadVideoPost(it, caption, onPostSuccess)
                             }
                             PostType.LINK -> viewModel.uploadLinkPost(linkUrl, caption, linkPreview, onPostSuccess)
+                            PostType.TEXT -> viewModel.uploadTextPost(caption, onPostSuccess)
                         }
                     },
                     enabled = canPost,

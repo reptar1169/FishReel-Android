@@ -4,6 +4,24 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 
 /**
+ * One species' total count for a single day's report post -- see
+ * [Post.speciesCountsPelagic]/[Post.speciesCountsCoastal]. Mirrors iOS's SpeciesCount and the
+ * {species, count} shape written by the aggregateSpeciesCounts Cloud Function helper.
+ */
+data class SpeciesCount(val species: String = "", val count: Int = 0)
+
+/** Parses a Firestore array-of-maps field into a list of [SpeciesCount], skipping malformed entries. */
+private fun parseSpeciesCounts(raw: Any?): List<SpeciesCount> {
+    val list = raw as? List<*> ?: return emptyList()
+    return list.mapNotNull { entry ->
+        val map = entry as? Map<*, *> ?: return@mapNotNull null
+        val species = map["species"] as? String ?: return@mapNotNull null
+        val count = (map["count"] as? Number)?.toInt() ?: 0
+        SpeciesCount(species, count)
+    }
+}
+
+/**
  * Mirrors the iOS app's `Post` struct field-for-field, since both apps share the same
  * Firestore "posts" collection. Do not rename these fields without updating the iOS app too.
  *
@@ -33,13 +51,21 @@ data class Post(
     val userID: String? = null,
     val likes: Int = 0,
     val commentCount: Int = 0,
-    val createdAt: Timestamp? = null
+    val createdAt: Timestamp? = null,
+    /** Structured per-species totals for a FishReel Reports bot post (empty for every other
+     * post, and for report posts written before this field existed) -- see the fish-count graph
+     * feature, FishCountsGraphScreen. */
+    val speciesCountsPelagic: List<SpeciesCount> = emptyList(),
+    val speciesCountsCoastal: List<SpeciesCount> = emptyList()
 ) {
     /** A post has either a photo or a video, mirroring the iOS app's `isVideo` computed property. */
     val isVideo: Boolean get() = postVideo.isNotBlank()
 
     /** A link post shares a URL (with a fetched preview card) instead of media. */
     val isURLPost: Boolean get() = postURL.isNotBlank()
+
+    /** False for a text-only post (caption, no photo/video/link). Mirrors iOS's Post.hasMedia. */
+    val hasMedia: Boolean get() = postImage.isNotBlank() || isVideo || isURLPost
 
     /** iOS falls back to the SF Symbol name "person.circle" when there's no real avatar URL. */
     val hasPhotoAvatar: Boolean get() = userAvatar.startsWith("http")
@@ -63,7 +89,9 @@ data class Post(
                 userID = data["userID"] as? String,
                 likes = (data["likes"] as? Number)?.toInt() ?: 0,
                 commentCount = (data["commentCount"] as? Number)?.toInt() ?: 0,
-                createdAt = data["createdAt"] as? Timestamp
+                createdAt = data["createdAt"] as? Timestamp,
+                speciesCountsPelagic = parseSpeciesCounts(data["speciesCountsPelagic"]),
+                speciesCountsCoastal = parseSpeciesCounts(data["speciesCountsCoastal"])
             )
         }
     }

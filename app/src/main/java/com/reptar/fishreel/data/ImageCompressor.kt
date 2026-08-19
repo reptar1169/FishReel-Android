@@ -24,7 +24,7 @@ private const val WEBP_QUALITY = 78
  * via standard AsyncImage/UIImage) decodes it natively too via ImageIO -- confirmed compatible
  * with the iOS app before switching this from JPEG.
  *
- * Shared by post uploads (FeedViewModel) and profile photo uploads (AuthViewModel/ProfileScreen).
+ * Shared by post uploads (FeedViewModel) and profile photo uploads (AuthViewModel/ProfileContent).
  */
 object ImageCompressor {
     fun compress(context: Context, uri: Uri): ByteArray {

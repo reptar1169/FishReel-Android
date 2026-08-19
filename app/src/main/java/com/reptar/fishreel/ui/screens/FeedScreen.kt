@@ -11,8 +11,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,15 +31,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -87,10 +90,12 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.reptar.fishreel.R
+import com.reptar.fishreel.auth.AuthViewModel
 import com.reptar.fishreel.data.ReportHelper
 import com.reptar.fishreel.data.ShareHelper
 import com.reptar.fishreel.model.Post
 import com.reptar.fishreel.ui.FeedViewModel
+import com.reptar.fishreel.ui.ThemeViewModel
 import com.reptar.fishreel.ui.components.LinkPreviewCard
 import com.reptar.fishreel.ui.components.VideoPlayer
 import com.reptar.fishreel.ui.components.ZoomableImageViewer
@@ -101,11 +106,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun FeedScreen(
     viewModel: FeedViewModel,
+    authViewModel: AuthViewModel,
+    themeViewModel: ThemeViewModel,
     isDarkTheme: Boolean,
-    profilePhotoUrl: String?,
     onAddPost: () -> Unit,
     onOpenComments: (String) -> Unit,
-    onOpenProfile: () -> Unit,
     onEditPost: (String) -> Unit,
     onOpenLikers: (String) -> Unit,
     onOpenUserProfile: (userId: String, username: String, avatarUrl: String) -> Unit,
@@ -132,8 +137,20 @@ fun FeedScreen(
     val currentUserId = viewModel.currentUserId
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    // The Reports tab opens to the fish-count graph by default; flipping this true swaps in the
+    // original post-list view (see the top bar's toggle icon and the Box{when{}} content below).
+    var reportsShowFeed by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val showBottomBar = listState.isScrollingUp()
+    // The graph and Account tab each scroll a plain Column (FishCountsGraphContent/
+    // ProfileContent) rather than the LazyColumn listState above drives -- lifted here so their
+    // scroll direction can also feed the bottom bar's hide-on-scroll-down behavior below.
+    val graphScrollState = rememberScrollState()
+    val accountScrollState = rememberScrollState()
+    val showBottomBar = when {
+        selectedTab == 2 && !reportsShowFeed -> graphScrollState.isScrollingUp()
+        selectedTab == 3 -> accountScrollState.isScrollingUp()
+        else -> listState.isScrollingUp()
+    }
     var highlightedPostId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(errorMessage) {
@@ -159,6 +176,11 @@ fun FeedScreen(
         // Land on the Feed tab (unfiltered - a shared post could belong to anyone, not just
         // whoever's currently filtered/hooked) or the Reports tab, whichever it was found in.
         selectedTab = if (feedIndex != -1) 0 else 2
+        if (feedIndex == -1) {
+            // The Reports tab opens to the graph by default - without this, landing here via a
+            // shared link would select the tab but never actually show the highlighted post.
+            reportsShowFeed = true
+        }
         viewModel.clearUserFilter()
         listState.animateScrollToItem(index)
         highlightedPostId = postId
@@ -175,6 +197,7 @@ fun FeedScreen(
     val displayedPosts = when {
         selectedTab == 1 -> hookedPosts
         selectedTab == 2 -> reportPosts
+        selectedTab == 3 -> emptyList()
         selectedUserId != null -> filteredPosts
         else -> posts
     }
@@ -192,18 +215,12 @@ fun FeedScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = onOpenProfile) {
-                        if (!profilePhotoUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = profilePhotoUrl,
-                                contentDescription = "Profile",
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(Icons.Default.Person, contentDescription = "Profile")
+                    // Only meaningful on the Reports tab, which defaults to the graph -- this
+                    // toggles to the underlying per-landing post list and back. The label always
+                    // names what tapping it will reveal next, not the current state.
+                    if (selectedTab == 2) {
+                        TextButton(onClick = { reportsShowFeed = !reportsShowFeed }) {
+                            Text(if (reportsShowFeed) "Show Graph" else "Reports by Dock")
                         }
                     }
                 }
@@ -267,7 +284,8 @@ fun FeedScreen(
                         label = { Text("Hooked") }
                     )
                     // No custom asset for this tab -- a core Material icon, same as this file's
-                    // other non-custom cases (e.g. Icons.Default.Person for Profile).
+                    // other non-custom cases. Graph icon since the tab now opens straight to
+                    // the fish-count charts (see reportsShowFeed above).
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = {
@@ -276,12 +294,27 @@ fun FeedScreen(
                         },
                         icon = {
                             Icon(
-                                Icons.Default.List,
+                                Icons.Default.ShowChart,
                                 contentDescription = null,
                                 modifier = Modifier.size(24.dp)
                             )
                         },
                         label = { Text("Reports") }
+                    )
+                    // Mirrors iOS's Account tab (AccountView) -- a real tab rather than a
+                    // top-bar avatar button, so profile/sign-out/delete-account live inline
+                    // here (see ProfileContent) instead of behind a separate pushed screen.
+                    NavigationBarItem(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        icon = {
+                            Icon(
+                                Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        },
+                        label = { Text("Account") }
                     )
                 }
             }
@@ -300,8 +333,8 @@ fun FeedScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // A quick shortcut to this person's profile without needing to scroll to a
-                    // post row -- kept out of the top bar's account icon (which always means
-                    // "go to my account" everywhere else in the app) so that stays predictable.
+                    // post row -- kept separate from the bottom bar's Account tab (which always
+                    // means "go to my account" everywhere else in the app) so that stays predictable.
                     val avatarModifier = Modifier
                         .size(28.dp)
                         .clickable {
@@ -345,6 +378,25 @@ fun FeedScreen(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
+                    selectedTab == 2 && !reportsShowFeed -> {
+                        // The graph is its own self-contained empty state (no data yet vs. no
+                        // reports at all look the same to it), so this branch short-circuits
+                        // before any of the list-oriented isLoading/empty checks below.
+                        FishCountsGraphContent(
+                            reportPosts = reportPosts,
+                            scrollState = graphScrollState,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    selectedTab == 3 -> {
+                        ProfileContent(
+                            authViewModel = authViewModel,
+                            themeViewModel = themeViewModel,
+                            snackbarHostState = snackbarHostState,
+                            scrollState = accountScrollState,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                     isLoading -> {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                     }
@@ -744,6 +796,22 @@ private fun LazyListState.isScrollingUp(): Boolean {
                 previousIndex = firstVisibleItemIndex
                 previousScrollOffset = firstVisibleItemScrollOffset
             }
+        }
+    }.value
+}
+
+/**
+ * Same hide-on-scroll-down/show-on-scroll-up signal as LazyListState.isScrollingUp() above, but
+ * for the plain Column+verticalScroll used by the Reports tab's graph and the Account tab
+ * (FishCountsGraphContent, ProfileContent) -- neither is a LazyColumn, so there's no item index,
+ * just a single scroll offset to compare against its previous value.
+ */
+@Composable
+private fun ScrollState.isScrollingUp(): Boolean {
+    var previousValue by remember(this) { mutableIntStateOf(value) }
+    return remember(this) {
+        derivedStateOf {
+            (previousValue >= value).also { previousValue = value }
         }
     }.value
 }

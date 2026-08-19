@@ -101,6 +101,17 @@ object PostRepository {
         awaitClose { registration.remove() }
     }
 
+    /**
+     * Creates a text-only post: no Storage upload, no postImage/postVideo/postURL at all -
+     * just a caption. Mirrors iOS's FeedViewModel.createPost() being called with empty
+     * imagePath/videoPath. Matches createPostDocument's other callers in requiring nothing
+     * else be set; the caller (PostScreen) already guards against an empty caption.
+     */
+    suspend fun uploadTextPost(caption: String) {
+        val user = refreshedUser() ?: error("You must be signed in to post")
+        createPostDocument(user, caption = caption)
+    }
+
     /** Uploads an already-compressed image and creates the Firestore post document. */
     suspend fun uploadPhotoPost(imageBytes: ByteArray, caption: String) {
         val user = refreshedUser() ?: error("You must be signed in to post")
