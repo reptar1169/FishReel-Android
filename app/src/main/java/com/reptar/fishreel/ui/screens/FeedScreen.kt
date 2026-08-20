@@ -15,6 +15,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
@@ -49,13 +51,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
@@ -85,6 +89,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
@@ -99,6 +104,7 @@ import com.reptar.fishreel.ui.ThemeViewModel
 import com.reptar.fishreel.ui.components.LinkPreviewCard
 import com.reptar.fishreel.ui.components.VideoPlayer
 import com.reptar.fishreel.ui.components.ZoomableImageViewer
+import com.google.firebase.Timestamp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -137,17 +143,25 @@ fun FeedScreen(
     val currentUserId = viewModel.currentUserId
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    // The Reports tab opens to the fish-count graph by default; flipping this true swaps in the
-    // original post-list view (see the top bar's toggle icon and the Box{when{}} content below).
-    var reportsShowFeed by rememberSaveable { mutableStateOf(false) }
+    // The Reports tab has its own 3-way sub-tab (see ReportsHeader below), defaulting to the
+    // fish-count graph: 0 = Dock Totals, 1 = Reports by Dock (the post list), 2 = Bait Report.
+    // Replaces the old reportsShowFeed boolean toggle now that there are three sections instead
+    // of two. Mirrors iOS's ReportsTab enum in ContentView.swift.
+    var reportsSubTab by rememberSaveable { mutableIntStateOf(0) }
+    // San Diego is the only option today, but this is a dropdown (see ReportsHeader) so more
+    // regions can be added later without another redesign. Mirrors iOS's FishingRegion menu.
+    var selectedRegion by rememberSaveable { mutableStateOf("San Diego") }
+    var regionMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    // The graph and Account tab each scroll a plain Column (FishCountsGraphContent/
-    // ProfileContent) rather than the LazyColumn listState above drives -- lifted here so their
-    // scroll direction can also feed the bottom bar's hide-on-scroll-down behavior below.
+    // The graph, Bait Report, and Account tab each scroll a plain Column rather than the
+    // LazyColumn listState above drives -- lifted here so their scroll direction can also feed
+    // the bottom bar's hide-on-scroll-down behavior below.
     val graphScrollState = rememberScrollState()
+    val baitReportScrollState = rememberScrollState()
     val accountScrollState = rememberScrollState()
     val showBottomBar = when {
-        selectedTab == 2 && !reportsShowFeed -> graphScrollState.isScrollingUp()
+        selectedTab == 2 && reportsSubTab == 0 -> graphScrollState.isScrollingUp()
+        selectedTab == 2 && reportsSubTab == 2 -> baitReportScrollState.isScrollingUp()
         selectedTab == 3 -> accountScrollState.isScrollingUp()
         else -> listState.isScrollingUp()
     }
@@ -177,9 +191,9 @@ fun FeedScreen(
         // whoever's currently filtered/hooked) or the Reports tab, whichever it was found in.
         selectedTab = if (feedIndex != -1) 0 else 2
         if (feedIndex == -1) {
-            // The Reports tab opens to the graph by default - without this, landing here via a
+            // The Reports tab opens to Dock Totals by default - without this, landing here via a
             // shared link would select the tab but never actually show the highlighted post.
-            reportsShowFeed = true
+            reportsSubTab = 1
         }
         viewModel.clearUserFilter()
         listState.animateScrollToItem(index)
@@ -196,7 +210,11 @@ fun FeedScreen(
 
     val displayedPosts = when {
         selectedTab == 1 -> hookedPosts
-        selectedTab == 2 -> reportPosts
+        // Dock Totals and Bait Report render their own content directly (see the Box{when{}}
+        // below) rather than the shared LazyColumn, so only the Reports-by-Dock sub-tab needs
+        // the post list here.
+        selectedTab == 2 && reportsSubTab == 1 -> reportPosts
+        selectedTab == 2 -> emptyList()
         selectedTab == 3 -> emptyList()
         selectedUserId != null -> filteredPosts
         else -> posts
@@ -215,23 +233,19 @@ fun FeedScreen(
                     )
                 },
                 actions = {
-                    // Only meaningful on the Reports tab, which defaults to the graph -- this
-                    // toggles to the underlying per-landing post list and back. The label always
-                    // names what tapping it will reveal next, not the current state.
-                    if (selectedTab == 2) {
-                        TextButton(onClick = { reportsShowFeed = !reportsShowFeed }) {
-                            Text(if (reportsShowFeed) "Show Graph" else "Reports by Dock")
+                    // Top-right, matching iOS's ToolbarItem(placement: .topBarTrailing) "+"
+                    // button (was a bottom-right FAB here before). Only the main Feed tab is
+                    // "your" unfiltered stream -- posting from Hooked/Reports/Account would be
+                    // confusing since none of those are "everything you've posted to."
+                    if (selectedTab == 0) {
+                        IconButton(onClick = onAddPost) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Post")
                         }
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAddPost) {
-                Icon(Icons.Default.Add, contentDescription = "Add Post")
-            }
-        },
         bottomBar = {
             // Moved down from a top TabRow so the Feed/Hooked switch is reachable one-handed
             // on large-screen devices -- Scaffold automatically keeps the FAB and content
@@ -285,7 +299,7 @@ fun FeedScreen(
                     )
                     // No custom asset for this tab -- a core Material icon, same as this file's
                     // other non-custom cases. Graph icon since the tab now opens straight to
-                    // the fish-count charts (see reportsShowFeed above).
+                    // the fish-count charts (see reportsSubTab above).
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = {
@@ -325,6 +339,20 @@ fun FeedScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (selectedTab == 2) {
+                ReportsHeader(
+                    selectedRegion = selectedRegion,
+                    regionMenuExpanded = regionMenuExpanded,
+                    onRegionMenuExpandedChange = { regionMenuExpanded = it },
+                    onRegionSelected = {
+                        selectedRegion = it
+                        regionMenuExpanded = false
+                    },
+                    selectedSubTab = reportsSubTab,
+                    onSubTabSelected = { reportsSubTab = it }
+                )
+            }
+
             if (selectedUserId != null) {
                 Row(
                     modifier = Modifier
@@ -378,7 +406,7 @@ fun FeedScreen(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
-                    selectedTab == 2 && !reportsShowFeed -> {
+                    selectedTab == 2 && reportsSubTab == 0 -> {
                         // The graph is its own self-contained empty state (no data yet vs. no
                         // reports at all look the same to it), so this branch short-circuits
                         // before any of the list-oriented isLoading/empty checks below.
@@ -388,12 +416,36 @@ fun FeedScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                    selectedTab == 2 && reportsSubTab == 2 -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(baitReportScrollState)
+                                .padding(16.dp)
+                        ) {
+                            BaitReportCard()
+                        }
+                    }
                     selectedTab == 3 -> {
                         ProfileContent(
                             authViewModel = authViewModel,
                             themeViewModel = themeViewModel,
                             snackbarHostState = snackbarHostState,
                             scrollState = accountScrollState,
+                            // "My Posts" replaces the old dedicated My Fish tab (removed for
+                            // being 100% redundant with tapping your own username elsewhere -
+                            // same viewModel.posts-filtered-by-userID data, just with less
+                            // functionality). Reuses the exact same filterByUser() + Feed-tab
+                            // mechanism that powers tapping *any* username, rather than a
+                            // separate one-off "my posts" screen/query.
+                            onOpenMyPosts = {
+                                authViewModel.currentUser.value?.let { user ->
+                                    val username = user.displayName?.ifBlank { null } ?: user.email ?: "FishReel User"
+                                    val avatar = user.photoUrl?.toString() ?: "person.circle"
+                                    viewModel.filterByUser(user.uid, username, avatar)
+                                    selectedTab = 0
+                                }
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -500,6 +552,88 @@ private fun annotatedCaption(caption: String, linkColor: Color): AnnotatedString
     append(caption.substring(lastIndex))
 }
 
+/**
+ * Reports tab header: a region picker (San Diego only for now, but built as a dropdown menu so
+ * more regions can be added later without another redesign - mirrors iOS's FishingRegion Menu in
+ * ContentView.swift) plus a 3-way sub-tab selector (Dock Totals / Reports by Dock / Bait Report)
+ * that replaces the old single "Reports by Dock" / "Show Graph" toggle button that used to live
+ * in the top bar's actions. Rendered only when selectedTab == 2 (see FeedScreen).
+ */
+@Composable
+private fun ReportsHeader(
+    selectedRegion: String,
+    regionMenuExpanded: Boolean,
+    onRegionMenuExpandedChange: (Boolean) -> Unit,
+    onRegionSelected: (String) -> Unit,
+    selectedSubTab: Int,
+    onSubTabSelected: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Box {
+            TextButton(onClick = { onRegionMenuExpandedChange(true) }) {
+                Text(
+                    text = selectedRegion,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+            DropdownMenu(
+                expanded = regionMenuExpanded,
+                onDismissRequest = { onRegionMenuExpandedChange(false) }
+            ) {
+                // San Diego is the only region scraped today (see functions/index.js) - listed
+                // explicitly rather than hardcoded into the button so adding a second region
+                // later is just adding another DropdownMenuItem here.
+                DropdownMenuItem(
+                    text = { Text("San Diego") },
+                    onClick = { onRegionSelected("San Diego") }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        val subTabLabels = listOf("Dock Totals", "Reports by Dock", "Bait Report")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            subTabLabels.forEachIndexed { index, label ->
+                SegmentedButton(
+                    selected = selectedSubTab == index,
+                    onClick = { onSubTabSelected(index) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = subTabLabels.size)
+                ) {
+                    Text(label)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compact relative post age for the header (e.g. "10m", "2h", "5d", "3mo", "1y") -- mirrors
+ * iOS's PostRow.relativeTimeString(from:) and the website feed's relativeTime() in
+ * feed-shared.js. Deliberately terse (no "ago" suffix) since this sits inline next to the
+ * username rather than as its own sentence; "just now" is the only spelled-out case, for
+ * anything under a minute.
+ */
+private fun relativeTimeString(timestamp: Timestamp): String {
+    val seconds = ((System.currentTimeMillis() - timestamp.toDate().time) / 1000).coerceAtLeast(0)
+    val units = listOf(
+        "y" to 31_536_000L,
+        "mo" to 2_592_000L,
+        "d" to 86_400L,
+        "h" to 3_600L,
+        "m" to 60L
+    )
+    for ((label, unitSeconds) in units) {
+        val value = seconds / unitSeconds
+        if (value >= 1) return "$value$label"
+    }
+    return "just now"
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PostItem(
@@ -567,17 +701,32 @@ fun PostItem(
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = post.username.ifBlank { "Angler" },
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier
-                        .weight(1f)
-                        .let { base ->
+                // Outer Row carries the weight(1f) that pushes the trailing menu/follow
+                // controls to the right - kept separate from the username Text's own
+                // clickable() so the relative-time label alongside it stays outside the
+                // tap target that opens the user's profile, matching iOS's PostRow.
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = post.username.ifBlank { "Angler" },
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.let { base ->
                             // Only clickable when there's a userID to filter by -- a blank/legacy
                             // post without one has nothing to repopulate the feed with.
                             if (post.userID != null) base.clickable { onUsernameClick() } else base
                         }
-                )
+                    )
+                    post.createdAt?.let { timestamp ->
+                        Text(
+                            text = relativeTimeString(timestamp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.LightGray,
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
+                    }
+                }
                 if (isOwner) {
                     Box {
                         IconButton(onClick = { showMenu = true }) {
@@ -651,7 +800,28 @@ fun PostItem(
                 }
             }
 
-            if (post.postImage.isNotBlank()) {
+            // Caption - right under the header/username now (was previously below the
+            // like/comment row), and only rendered when there's caption text so a
+            // photo/video/link posted without one doesn't leave a stray gap here.
+            if (post.caption.isNotBlank()) {
+                Text(
+                    text = annotatedCaption(post.caption, colorResource(R.color.sea_blue_green)),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+
+            // FishReel Reports bot posts: postURL is only set for the canonical
+            // fishreelapp.com share-link's Open Graph preview (see postLink in
+            // functions/index.js), not something to show in-app - it would otherwise trip
+            // isURLPost below and render a redundant fishreel-logo link card with the landing
+            // title/domain repeated underneath, when the full report (with tappable
+            // per-landing links) already sits in the caption above. The bot signs in as a
+            // real Firebase Auth account (see FeedViewModel.FISH_COUNTS_BOT_UID), so
+            // post.userID is a real uid here, not null - checking against that constant
+            // rather than null is what actually identifies these posts. Mirrors iOS's PostRow.
+            if (post.userID == FeedViewModel.FISH_COUNTS_BOT_UID) {
+                // Nothing rendered here for bot posts.
+            } else if (post.postImage.isNotBlank()) {
                 // FillWidth (not Crop) so the full photo is visible at its natural aspect
                 // ratio, matching the iOS app, instead of cropping top/bottom or sides to
                 // force it into a fixed-height box.
@@ -732,17 +902,7 @@ fun PostItem(
                 }
             }
 
-            Text(
-                text = annotatedCaption(post.caption, colorResource(R.color.sea_blue_green)),
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-            post.createdAt?.let {
-                Text(
-                    text = it.toDate().toString(),
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            } ?: Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 

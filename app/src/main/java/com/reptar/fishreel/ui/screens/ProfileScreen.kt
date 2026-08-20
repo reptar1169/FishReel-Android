@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,16 +59,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The Account tab's content (see FeedScreen's selectedTab == 3) - profile photo, dark mode
- * toggle, legal links, sign out, and delete account. No Scaffold/TopAppBar of its own since
- * it's embedded directly in FeedScreen's; error messages surface through the snackbarHostState
- * FeedScreen already owns rather than a separate nested SnackbarHost.
+ * The Account tab's content (see FeedScreen's selectedTab == 3) - profile photo, a "My Posts"
+ * shortcut, dark mode toggle, legal links, sign out, and delete account. No Scaffold/TopAppBar
+ * of its own since it's embedded directly in FeedScreen's; error messages surface through the
+ * snackbarHostState FeedScreen already owns rather than a separate nested SnackbarHost.
  */
 @Composable
 fun ProfileContent(
     authViewModel: AuthViewModel,
     themeViewModel: ThemeViewModel,
     snackbarHostState: SnackbarHostState,
+    // Replaces the old dedicated My Fish tab -- switches to the Feed tab filtered down to
+    // just the signed-in user's own posts, the same mechanism tapping any other username
+    // uses (see FeedScreen's filterByUser call site).
+    onOpenMyPosts: () -> Unit,
     scrollState: ScrollState = rememberScrollState(),
     modifier: Modifier = Modifier
 ) {
@@ -146,6 +151,17 @@ fun ProfileContent(
             Text(text = user?.displayName?.ifBlank { "Angler" } ?: "Angler", style = MaterialTheme.typography.titleMedium)
             user?.email?.let {
                 Text(text = it, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = onOpenMyPosts,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("My Posts")
             }
 
             Spacer(modifier = Modifier.height(24.dp))

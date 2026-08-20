@@ -12,8 +12,8 @@ android {
         applicationId = "com.reptar.fishreel"
         minSdk = 24
         targetSdk = 37
-        versionCode = 9
-        versionName = "9.0"
+        versionCode = 11
+        versionName = "11.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

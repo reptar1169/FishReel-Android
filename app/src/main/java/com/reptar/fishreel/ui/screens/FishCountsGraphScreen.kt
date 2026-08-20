@@ -34,7 +34,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,10 +71,10 @@ private data class SeriesPoints(val species: String, val points: List<Pair<Int, 
 /**
  * Two line graphs built from every FishReel Reports bot post ever posted: one for pelagic
  * species and one for coastal species - the same two groupings the daily scraper buckets
- * species into server-side (see aggregateSpeciesCounts in functions/index.js). Rendered inline
- * as the Reports tab's default content (see FeedScreen's reportsShowFeed toggle) rather than a
- * separate pushed screen, since the graph is now the "front page" and the post list is the
- * secondary view behind a toolbar button - no Scaffold/TopAppBar of its own.
+ * species into server-side (see aggregateSpeciesCounts in functions/index.js). This is the
+ * Reports tab's "Dock Totals" sub-tab content (see FeedScreen's ReportsHeader/reportsSubTab) -
+ * no title/heading of its own, since the region dropdown ("San Diego") and the "Dock Totals" tab
+ * label above it already say what this is. No Scaffold/TopAppBar of its own.
  *
  * All of history is kept (not just a recent slice) since each chart's x-axis is horizontally
  * scrollable - see LineChartCanvas - defaulting to the most recent VISIBLE_DAY_COUNT days with
@@ -102,12 +101,6 @@ fun FishCountsGraphContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        Text(
-            text = "San Diego Dock Totals",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-
         if (sortedPosts.isEmpty()) {
             Text(
                 "Species counts will start showing up here after the next daily report.",
